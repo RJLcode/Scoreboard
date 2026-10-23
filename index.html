@@ -46,6 +46,7 @@ color-scheme: dark;
 --sidebar-w: 220px;
 --nav-h: 56px;
 }
+html.below-status-bar { --safe-t: 0px; }
 
 /* ── iOS web app shell ─────────────────────────────
 html + body fill the full screen and don't scroll.
@@ -83,9 +84,8 @@ Hardcoded top padding large enough for any iPhone
 flex-shrink: 0;
 background: var(--bg);
 border-bottom: 1px solid var(--border);
-/* 60px hardcoded top padding clears Dynamic Island on every iPhone.
-safe-area is added on top as a bonus where it works. */
-padding-top: max(60px, calc(env(safe-area-inset-top) + 12px));
+/* --safe-t is zeroed by JS when the viewport already starts below the status bar */
+padding-top: calc(var(--safe-t) + 12px);
 padding-left:  calc(env(safe-area-inset-left,  0px) + 14px);
 padding-right: calc(env(safe-area-inset-right, 0px) + 14px);
 padding-bottom: 8px;
@@ -1299,17 +1299,24 @@ async function fetchTeam(sport, id) {
   const hit = teamCache[key];
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.data;
   const get = url => fetch(url, { cache:'no-store' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  // The team detail endpoint no longer sends CORS headers, so it's best-effort;
+  // the schedule endpoint (CORS-enabled) carries a basic team object as well.
   const [info, sched] = await Promise.all([
-    get(`${TEAM_API[sport]}/${id}`),
-    get(`${TEAM_API[sport]}/${id}/schedule`).catch(() => ({})),
+    get(`${TEAM_API[sport]}/${id}`).catch(() => ({})),
+    get(`${TEAM_API[sport]}/${id}/schedule`),
   ]);
   let events = sched.events || [];
+  let base = sched.team || {};
   // In the postseason ESPN returns only playoff games — prepend the regular season
   if (sched.requestedSeason?.type === 3) {
     const reg = await get(`${TEAM_API[sport]}/${id}/schedule?seasontype=2`).catch(() => ({}));
     events = [...(reg.events || []), ...events];
+    // recordSummary is the playoff record here — tally the regular season instead
+    const done = (reg.events || []).map(ev => schedGame(ev, id)).filter(g => g.state === 'post');
+    const n = r => done.filter(g => g.result === r).length;
+    if (done.length) base = { ...base, recordSummary: `${n('w')}-${n('l')}` };
   }
-  const data = { team: info.team || {}, events };
+  const data = { team: { ...base, ...info.team }, events };
   teamCache[key] = { at: Date.now(), data };
   return data;
 }
@@ -1337,11 +1344,16 @@ function buildTeamSheet(sport, { team, events }) {
   const total = rec.find(r => r.type === 'total') || rec[0] || {};
   const stat  = n => total.stats?.find(s => s.name === n)?.value;
   const split = t => rec.find(r => r.type === t)?.summary;
-  const streak = stat('streak');
-  const avg = v => v != null && stat('gamesPlayed') ? v.toFixed(1) : '–';
   const unit = SCORE_UNIT[sport];
 
   const games = events.map(ev => schedGame(ev, team.id));
+  // Without the detail endpoint's record, derive streak and averages from finished games
+  const done = games.filter(g => g.state === 'post');
+  const runLen = done.length ? done.length - 1 - done.findLastIndex(g => g.result !== done.at(-1).result) : 0;
+  const derivedStreak = !runLen ? 0 : done.at(-1).result === 'w' ? runLen : done.at(-1).result === 'l' ? -runLen : 0;
+  const mean = k => done.length ? done.reduce((s, g) => s + (Number(g[k]) || 0), 0) / done.length : null;
+  const streak = total.stats ? stat('streak') : derivedStreak;
+  const avg = (v, fallback) => (v != null && stat('gamesPlayed') ? v : fallback)?.toFixed(1) ?? '–';
   // College records don't include home/away splits — derive from schedule
   const tally = home => {
     const done = games.filter(g => g.state === 'post' && g.home === home);
@@ -1351,21 +1363,21 @@ function buildTeamSheet(sport, { team, events }) {
   };
 
   const stats = [
-    ['Record', total.summary || '–'],
+    ['Record', total.summary || team.recordSummary || '–'],
     ['Home',   split('home') || tally(true)  || '–'],
     ['Away',   split('road') || tally(false) || '–'],
     ['Streak', streak ? `${streak > 0 ? 'W' : 'L'}${Math.abs(streak)}` : '–'],
-    [`${unit}/G`,     avg(stat('avgPointsFor'))],
-    [`Opp ${unit}/G`, avg(stat('avgPointsAgainst'))],
+    [`${unit}/G`,     avg(stat('avgPointsFor'), mean('us'))],
+    [`Opp ${unit}/G`, avg(stat('avgPointsAgainst'), mean('them'))],
   ];
 
-  const recent = games.filter(g => g.state === 'post').slice(-5).reverse();
+  const recent = done.slice(-5).reverse();
   const next   = games.find(g => g.state !== 'post');
   const oppLine = g => `<img src="${g.oppLogo}" alt="" onerror="this.style.visibility='hidden'"/>
     <span class="opp">${g.home ? 'vs' : '@'} ${g.oppName || g.oppAbbr}</span>`;
 
   const rank = team.rank > 0 && team.rank <= 25 ? `<span class="team-rank">${team.rank}</span>` : '';
-  const link = team.links?.find(l => l.rel?.includes('clubhouse'))?.href;
+  const link = team.links?.find(l => l.rel?.includes('clubhouse'))?.href || team.clubhouse;
   const color = /^[0-9a-f]{6}$/i.test(team.color || '') ? `#${team.color}` : '';
 
   return `
@@ -1373,7 +1385,7 @@ function buildTeamSheet(sport, { team, events }) {
     <div class="ts-grip"></div>
     <button class="ts-close" id="teamSheetClose" aria-label="Close">✕</button>
     <div class="ts-head">
-      <img class="ts-logo" src="${pickLogo(team.logos) || ''}" alt=""/>
+      <img class="ts-logo" src="${pickLogo(team.logos) || team.logo || ''}" alt=""/>
       <div>
         <div class="ts-name">${rank}${team.displayName || team.abbreviation || ''}</div>
         <div class="ts-sub">${team.standingSummary || ''}</div>
@@ -1478,9 +1490,25 @@ document.querySelectorAll('#statusBar .status-btn').forEach(btn => {
 // Refresh
 document.getElementById('refreshBtn').addEventListener('click', () => loadAll(false));
 
+// iOS 26 home-screen apps can start the viewport below the status bar while
+// still reporting a top safe-area inset — drop the inset so the header isn't padded twice
+function fixTopInset() {
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;visibility:hidden;height:env(safe-area-inset-top,0px)';
+  document.body.appendChild(probe);
+  const inset = probe.offsetHeight;
+  probe.remove();
+  const tall = Math.max(screen.width, screen.height);
+  const below = standalone && inset > 0 && innerHeight > innerWidth && innerHeight <= tall - inset + 1;
+  document.documentElement.classList.toggle('below-status-bar', below);
+}
+
 /* ═══════════════════════════════════════════════════
    BOOT
 ═══════════════════════════════════════════════════ */
+fixTopInset();
+addEventListener('resize', fixTopInset);
 loadAll(true).then(pickDefaultStatus);
 setInterval(() => loadAll(false), 30_000);
 </script>

@@ -49,10 +49,10 @@ All data comes from ESPN's public site API — no API key needed.
 | Data | Endpoint |
 | --- | --- |
 | Scoreboards | `site.api.espn.com/apis/site/v2/sports/{sport}/{league}/scoreboard` |
-| Team info | `…/{sport}/{league}/teams/{id}` |
-| Team schedule | `…/{sport}/{league}/teams/{id}/schedule` |
+| Team schedule + basic info | `…/{sport}/{league}/teams/{id}/schedule` |
+| Team detail (best-effort) | `…/{sport}/{league}/teams/{id}` |
 
-The NCAA feed uses `groups=80` to include all FBS games (ESPN's default is Top 25 only). This is an unofficial API, so endpoints or fields may change without notice.
+The NCAA feed uses `groups=80` to include all FBS games (ESPN's default is Top 25 only). This is an unofficial API, so endpoints or fields may change without notice. The team detail endpoint currently doesn't send CORS headers, so browsers block it; the team sheet falls back to the schedule endpoint and derives streak and scoring averages from completed games.
 
 ## Project structure
 
