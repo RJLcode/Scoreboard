@@ -217,8 +217,11 @@ MOBILE BOTTOM SPORT NAV — fixed chrome
 .sport-bar {
 flex-shrink: 0;
 display: flex;
-height: calc(var(--nav-h) + var(--safe-b));
-padding-bottom: var(--safe-b);
+/* Tuck the buttons partway into the home-indicator area instead of
+   clearing all of it, so the bar sits close to the bottom edge */
+--nav-pad-b: max(4px, calc(var(--safe-b) - 18px));
+height: calc(var(--nav-h) + var(--nav-pad-b));
+padding-bottom: var(--nav-pad-b);
 background: var(--bg);
 border-top: 1px solid var(--border);
 z-index: 10;
