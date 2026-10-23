@@ -63,10 +63,10 @@ body {
 font-family: 'Inter', system-ui, -apple-system, sans-serif;
 -webkit-font-smoothing: antialiased;
 -webkit-text-size-adjust: 100%;
-/* Mobile: fixed flex column filling the whole screen; position:fixed
-   keeps iOS from scrolling the window when the viewport is shifted */
-position: fixed;
-inset: 0;
+/* Mobile: flex column filling the whole screen — dvh (like Orbital) reaches
+   the bottom edge in iOS home-screen apps, where 100% stops short */
+height: 100vh;
+height: 100dvh;
 display: flex;
 flex-direction: column;
 }
@@ -1525,8 +1525,6 @@ document.getElementById('footNote').addEventListener('click', () => {
 /* ═══════════════════════════════════════════════════
    BOOT
 ═══════════════════════════════════════════════════ */
-// Keep iOS from scrolling the window and pushing the header off the top
-addEventListener('scroll', () => { if (scrollY) scrollTo(0, 0); });
 loadAll(true).then(pickDefaultStatus);
 setInterval(() => loadAll(false), 30_000);
 </script>
