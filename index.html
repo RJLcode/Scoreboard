@@ -1500,7 +1500,9 @@ function fixTopInset() {
   const inset = probe.offsetHeight;
   probe.remove();
   const tall = Math.max(screen.width, screen.height);
-  const below = standalone && inset > 0 && innerHeight > innerWidth && innerHeight <= tall - inset + 1;
+  // Only when the missing height is exactly the status bar — a viewport that's short
+  // for other reasons (home indicator, mid-launch resize) still sits under the status bar
+  const below = standalone && inset > 0 && innerHeight > innerWidth && Math.abs(tall - innerHeight - inset) <= 2;
   document.documentElement.classList.toggle('below-status-bar', below);
 }
 
@@ -1509,6 +1511,8 @@ function fixTopInset() {
 ═══════════════════════════════════════════════════ */
 fixTopInset();
 addEventListener('resize', fixTopInset);
+addEventListener('pageshow', fixTopInset);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) fixTopInset(); });
 loadAll(true).then(pickDefaultStatus);
 setInterval(() => loadAll(false), 30_000);
 </script>
