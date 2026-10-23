@@ -1494,37 +1494,6 @@ document.querySelectorAll('#statusBar .status-btn').forEach(btn => {
 // Refresh
 document.getElementById('refreshBtn').addEventListener('click', () => loadAll(false));
 
-// Tap the "Updated …" line to show/hide the viewport numbers iOS reports
-function viewportReport() {
-  const probe = css => {
-    const d = document.createElement('div');
-    d.style.cssText = 'position:fixed;visibility:hidden;width:0;' + css;
-    document.body.appendChild(d);
-    const v = Math.round(d.getBoundingClientRect().height); d.remove(); return v;
-  };
-  const vv = window.visualViewport || {};
-  const r = el => { const b = document.querySelector(el)?.getBoundingClientRect(); return b ? `${Math.round(b.top)}/${Math.round(b.height)}` : '-'; };
-  return [
-    `standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`,
-    `screen ${screen.width}x${screen.height}  dpr ${devicePixelRatio}`,
-    `inner ${innerWidth}x${innerHeight}  client ${document.documentElement.clientHeight}`,
-    `vv h ${Math.round(vv.height)} offTop ${Math.round(vv.offsetTop)} pageTop ${Math.round(vv.pageTop)}  scrollY ${scrollY}`,
-    `inset t ${probe('height:env(safe-area-inset-top,0px)')} b ${probe('height:env(safe-area-inset-bottom,0px)')}`,
-    `vh ${probe('height:100vh')} dvh ${probe('height:100dvh')} svh ${probe('height:100svh')} lvh ${probe('height:100lvh')}`,
-    `body ${r('body')}  chrome ${r('.top-chrome')}`,
-  ].join('\n');
-}
-document.getElementById('footNote').addEventListener('click', () => {
-  let box = document.getElementById('vpReport');
-  if (box) { box.remove(); return; }
-  box = document.createElement('pre');
-  box.id = 'vpReport';
-  box.style.cssText = 'position:fixed;left:8px;right:8px;top:40%;z-index:200;margin:0;padding:10px;background:#000;color:#0f0;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;border:1px solid #0f0;border-radius:8px';
-  box.textContent = viewportReport();
-  box.addEventListener('click', () => box.remove());
-  document.body.appendChild(box);
-});
-
 /* ═══════════════════════════════════════════════════
    BOOT
 ═══════════════════════════════════════════════════ */
