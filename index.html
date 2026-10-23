@@ -46,7 +46,6 @@ color-scheme: dark;
 --sidebar-w: 220px;
 --nav-h: 56px;
 }
-html.below-status-bar { --safe-t: 0px; }
 
 /* ── iOS web app shell ─────────────────────────────
 html + body fill the full screen and don't scroll.
@@ -87,7 +86,6 @@ Hardcoded top padding large enough for any iPhone
 flex-shrink: 0;
 background: var(--bg);
 border-bottom: 1px solid var(--border);
-/* --safe-t is zeroed by JS when the viewport already starts below the status bar */
 padding-top: calc(var(--safe-t) + 12px);
 padding-left:  calc(env(safe-area-inset-left,  0px) + 14px);
 padding-right: calc(env(safe-area-inset-right, 0px) + 14px);
@@ -1493,20 +1491,6 @@ document.querySelectorAll('#statusBar .status-btn').forEach(btn => {
 // Refresh
 document.getElementById('refreshBtn').addEventListener('click', () => loadAll(false));
 
-// iOS 26 home-screen apps can start the viewport below the status bar while
-// still reporting a top safe-area inset — drop the inset so the header isn't padded twice
-function fixTopInset() {
-  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:fixed;visibility:hidden;height:env(safe-area-inset-top,0px)';
-  document.body.appendChild(probe);
-  const inset = probe.offsetHeight;
-  probe.remove();
-  const tall = Math.max(screen.width, screen.height);
-  const below = standalone && inset > 0 && innerHeight > innerWidth && tall - innerHeight >= inset - 2;
-  document.documentElement.classList.toggle('below-status-bar', below);
-}
-
 // Tap the "Updated …" line to show/hide the viewport numbers iOS reports
 function viewportReport() {
   const probe = css => {
@@ -1518,7 +1502,7 @@ function viewportReport() {
   const vv = window.visualViewport || {};
   const r = el => { const b = document.querySelector(el)?.getBoundingClientRect(); return b ? `${Math.round(b.top)}/${Math.round(b.height)}` : '-'; };
   return [
-    `standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}  below ${document.documentElement.classList.contains('below-status-bar')}`,
+    `standalone ${!!(navigator.standalone || matchMedia('(display-mode: standalone)').matches)}`,
     `screen ${screen.width}x${screen.height}  dpr ${devicePixelRatio}`,
     `inner ${innerWidth}x${innerHeight}  client ${document.documentElement.clientHeight}`,
     `vv h ${Math.round(vv.height)} offTop ${Math.round(vv.offsetTop)} pageTop ${Math.round(vv.pageTop)}  scrollY ${scrollY}`,
@@ -1541,11 +1525,7 @@ document.getElementById('footNote').addEventListener('click', () => {
 /* ═══════════════════════════════════════════════════
    BOOT
 ═══════════════════════════════════════════════════ */
-fixTopInset();
-addEventListener('resize', fixTopInset);
-addEventListener('pageshow', fixTopInset);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) fixTopInset(); });
-// A shifted viewport can still let iOS scroll the window and push the header off the top
+// Keep iOS from scrolling the window and pushing the header off the top
 addEventListener('scroll', () => { if (scrollY) scrollTo(0, 0); });
 loadAll(true).then(pickDefaultStatus);
 setInterval(() => loadAll(false), 30_000);
