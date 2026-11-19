@@ -1,6 +1,6 @@
 # 🏆 Sports Scoreboard
 
-**Current version: v1.0.1**
+**Current version: v1.0.2**
 
 A fast, mobile-first sports scoreboard built for the iOS home screen. Tracks live, upcoming, and completed games across **NFL, NCAA football, MLB, and NHL** — all from a single HTML file with no dependencies or build step.
 
@@ -54,9 +54,8 @@ All data comes from ESPN's public site API — no API key needed.
 | --- | --- |
 | Scoreboards | `site.api.espn.com/apis/site/v2/sports/{sport}/{league}/scoreboard` |
 | Team schedule + basic info | `…/{sport}/{league}/teams/{id}/schedule` |
-| Team detail (best-effort) | `…/{sport}/{league}/teams/{id}` |
 
-The NCAA feed uses `groups=80` to include all FBS games (ESPN's default is Top 25 only). This is an unofficial API, so endpoints or fields may change without notice. Every string in ESPN's answers is HTML-escaped as it arrives, and only `https://` links and logo URLs from the feed are used. The team detail endpoint currently doesn't send CORS headers, so browsers block it; the team sheet falls back to the schedule endpoint and derives streak and scoring averages from completed games.
+The NCAA feed uses `groups=80` to include all FBS games (ESPN's default is Top 25 only). This is an unofficial API, so endpoints or fields may change without notice. Every string in ESPN's answers is HTML-escaped as it arrives, and only `https://` links and logo URLs from the feed are used. ESPN's team detail endpoint (`…/teams/{id}`) doesn't send CORS headers, so browsers block it; the page doesn't call it. The team sheet uses the schedule endpoint and derives streak and scoring averages from completed games.
 
 ## Project structure
 

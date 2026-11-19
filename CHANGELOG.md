@@ -12,6 +12,10 @@ This project follows [Semantic Versioning](https://semver.org/): `vMAJOR.MINOR.P
 
 ---
 
+## [v1.0.2] — 2026-11-19
+
+- Team sheet no longer requests ESPN's team detail endpoint, which browsers always block (no CORS headers), so opening a team no longer logs a console error. The sheet already used the schedule endpoint for its data
+
 ## [v1.0.1] — 2026-11-19
 
 - Fixed faded game cards: each card faded in from transparent, the fade replayed on every 30-second refresh, and it could stall part-way and leave logos and times dim. Cards now slide in without fading, and animations are off for people who turn on Reduce Motion
