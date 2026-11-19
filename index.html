@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Scoreboard v1.0.1 | 2026-11-19 -->
 <!--
   Scoreboard
   Copyright (c) 2026 RJLcode (https://github.com/RJLcode). All rights reserved.
@@ -16,6 +17,10 @@
 <meta name="apple-mobile-web-app-title" content="Scoreboard"/>
 <meta name="theme-color" content="#07090e"/>
 <title>Scoreboard</title>
+<meta name="description" content="Live, upcoming and final NFL, NCAA football, MLB and NHL games."/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+<link rel="manifest" href="manifest.webmanifest"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
@@ -33,7 +38,7 @@ color-scheme: dark;
 --border-hi: rgba(255,255,255,0.14);
 --text:      #eef0f6;
 --text-dim:  #8a92a8;
---text-mute: #3d4460;
+--text-mute: #7a83a0; /* 4.6:1 or better on cards (WCAG AA) */
 --live-red:  #ef4444;
 --live-bg:   rgba(239,68,68,0.11);
 --gold:      #f59e0b;
@@ -71,10 +76,24 @@ display: flex;
 flex-direction: column;
 }
 
+/* ── Focus and reduced motion ───────────────────── */
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+.load-err { text-align:center; padding:40px 24px; color:var(--text-dim); font-size:.85rem; line-height:1.5; }
+.load-err button {
+  margin-top:12px; padding:7px 16px; border-radius:8px; cursor:pointer;
+  background:var(--card-hi); border:1px solid var(--border-hi); color:var(--text);
+  font-family:'Oswald',sans-serif; font-size:.8rem; letter-spacing:.06em; text-transform:uppercase;
+}
+.footer-note.warn { color: var(--gold); }
+
 /* ── Animations ──────────────────────────────────── */
 @keyframes blink   { 0%,100%{opacity:1;transform:scale(1);}  50%{opacity:.3;transform:scale(.6);} }
 @keyframes spin    { to { transform:rotate(360deg); } }
-@keyframes up      { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
+/* Cards slide in without fading: an opacity fade replayed on every 30-second refresh and could stall part-way, leaving cards dim */
+@keyframes up      { from{transform:translateY(6px);} to{transform:none;} }
 @keyframes shimmer { 0%,100%{opacity:1;} 50%{opacity:.4;} }
 
 /* ═══════════════════════════════════════════════════
@@ -767,21 +786,47 @@ const SCORE_UNIT = { nfl:'Pts', ncaa:'Pts', mlb:'Runs', nhl:'Goals' };
 let activeSport = 'nfl';
 let activeStatus = 'live';
 let busy = false;
+const failed = {}; // sport → last load failed
 const cache = {}; // sport → parsed games
 
 /* ═══════════════════════════════════════════════════
    SHARED HELPERS
 ═══════════════════════════════════════════════════ */
+// ESPN's feed is inserted into the page as HTML, so every string in it is escaped as soon as it arrives
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function escDeep(o) {
+  if (typeof o === 'string') return esc(o);
+  if (Array.isArray(o)) return o.map(escDeep);
+  if (o && typeof o === 'object') { const r = {}; for (const k in o) r[k] = escDeep(o[k]); return r; }
+  return o;
+}
+// Only plain https links from the feed are used (no javascript: or data: URLs)
+function safeUrl(u) {
+  return typeof u === 'string' && /^https:\/\/[^\s"'<>]+$/.test(u.replace(/&amp;/g, '&')) ? u : '';
+}
+// fetch() that gives up after `ms`, so a hung request shows an error instead of spinning forever
+function fetchJSON(url, ms = 12000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  return fetch(url, { cache:'no-store', signal: ctl.signal })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(escDeep)
+    .finally(() => clearTimeout(timer));
+}
+
 function pickLogo(logos) {
   if (!Array.isArray(logos)) return null;
   const byRel = r => logos.find(l => Array.isArray(l.rel) && l.rel.includes(r));
-  return (byRel('scoreboard') || byRel('full') || logos[0])?.href || null;
+  return safeUrl((byRel('scoreboard') || byRel('full') || logos[0])?.href) || null;
 }
 
 // Build ESPN CDN logo URL directly from abbreviation as guaranteed fallback
 function espnLogoUrl(sport, abbr) {
   if (!abbr) return '';
-  const a = abbr.toLowerCase();
+  const a = String(abbr).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!a) return '';
   const map = { nfl:'nfl', mlb:'mlb', nhl:'nhl' };
   return `https://a.espncdn.com/i/teamlogos/${map[sport]||sport}/500/scoreboard/${a}.png`;
 }
@@ -789,7 +834,7 @@ function espnLogoUrl(sport, abbr) {
 function logoImg(abbr, apiUrl, sport) {
   const key = (abbr || '').toUpperCase();
   // Use API url first; fall back to direct ESPN CDN pattern
-  const primary   = apiUrl || espnLogoUrl(sport, abbr);
+  const primary   = safeUrl(apiUrl) || espnLogoUrl(sport, abbr);
   const secondary = espnLogoUrl(sport, abbr);
   if (!primary) return `<div style="width:54px;height:54px;"></div>`;
   const fallback = (primary !== secondary && secondary)
@@ -856,8 +901,8 @@ function parseNFL(data, sport='nfl') {
     }
     const parseDnDist = txt => {
       if (!txt) return null;
-      const m = txt.match(/(1st|2nd|3rd|4th)\s*&\s*(\d+|Goal)/i);
-      return m ? `${m[1].toUpperCase()} & ${m[2]}` : txt;
+      const m = txt.match(/(1st|2nd|3rd|4th)\s*&(?:amp;)?\s*(\d+|Goal)/i); // feed text arrives HTML-escaped
+      return m ? `${m[1].toUpperCase()} &amp; ${m[2]}` : txt;
     };
     return {
       sport, id:ev.id, date:ev.date, state, isHalf, stName, qStr,
@@ -906,14 +951,14 @@ function buildNFLCard(g) {
     ${isLive?'<div class="live-bar"></div>':''}
     <div class="card-top">${pill}${meta}</div>
     <div class="card-body">
-      <div class="team-col tappable" data-sport="${g.sport}" data-team="${away.id}">
+      <div class="team-col tappable" role="button" tabindex="0" data-sport="${g.sport}" data-team="${away.id}">
         <div class="logo-wrap">${logoImg(away.abbr,away.espnLogo,sport)}${aP?'<div class="poss-pip">🏈</div>':''}</div>
         <span class="team-abbr">${abbr(away)}</span>
         <span class="team-record">${away.record||''}</span>
         ${isLive&&away.timeouts!=null?toDots(away.timeouts):''}
       </div>
       <div class="score-center">${scoreArea}</div>
-      <div class="team-col tappable" data-sport="${g.sport}" data-team="${home.id}">
+      <div class="team-col tappable" role="button" tabindex="0" data-sport="${g.sport}" data-team="${home.id}">
         <div class="logo-wrap">${logoImg(home.abbr,home.espnLogo,sport)}${hP?'<div class="poss-pip">🏈</div>':''}</div>
         <span class="team-abbr">${abbr(home)}</span>
         <span class="team-record">${home.record||''}</span>
@@ -1085,13 +1130,13 @@ function buildMLBCard(g) {
     ${isLive?'<div class="live-bar"></div>':''}
     <div class="card-top">${pill}${meta}</div>
     <div class="card-body">
-      <div class="team-col tappable" data-sport="${g.sport}" data-team="${away.id}">
+      <div class="team-col tappable" role="button" tabindex="0" data-sport="${g.sport}" data-team="${away.id}">
         <div class="logo-wrap">${logoImg(away.abbr,away.espnLogo,'mlb')}</div>
         <span class="team-abbr">${away.abbr||'–'}</span>
         <span class="team-record">${away.record||''}</span>
       </div>
       <div class="score-center">${scoreArea}${innArrow}</div>
-      <div class="team-col tappable" data-sport="${g.sport}" data-team="${home.id}">
+      <div class="team-col tappable" role="button" tabindex="0" data-sport="${g.sport}" data-team="${home.id}">
         <div class="logo-wrap">${logoImg(home.abbr,home.espnLogo,'mlb')}</div>
         <span class="team-abbr">${home.abbr||'–'}</span>
         <span class="team-record">${home.record||''}</span>
@@ -1197,13 +1242,13 @@ function buildNHLCard(g) {
     ${isLive?'<div class="live-bar"></div>':''}
     <div class="card-top">${pill}${meta}</div>
     <div class="card-body">
-      <div class="team-col tappable" data-sport="${g.sport}" data-team="${away.id}">
+      <div class="team-col tappable" role="button" tabindex="0" data-sport="${g.sport}" data-team="${away.id}">
         <div class="logo-wrap">${logoImg(away.abbr,away.espnLogo,'nhl')}</div>
         <span class="team-abbr">${away.abbr||'–'}</span>
         <span class="team-record">${away.record||''}</span>
       </div>
       <div class="score-center">${scoreArea}</div>
-      <div class="team-col tappable" data-sport="${g.sport}" data-team="${home.id}">
+      <div class="team-col tappable" role="button" tabindex="0" data-sport="${g.sport}" data-team="${home.id}">
         <div class="logo-wrap">${logoImg(home.abbr,home.espnLogo,'nhl')}</div>
         <span class="team-abbr">${home.abbr||'–'}</span>
         <span class="team-record">${home.record||''}</span>
@@ -1264,14 +1309,21 @@ async function loadSport(sport, showSkel=false) {
     document.getElementById(`${prefix}g-live`).innerHTML = skeletons(2);
   }
   try {
-    const res = await fetch(APIS[sport], { cache:'no-store' });
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
+    const data = await fetchJSON(APIS[sport]);
     const parsed = { nfl:parseNFL, ncaa:parseNCAA, mlb:parseMLB, nhl:parseNHL }[sport](data);
     cache[sport] = parsed;
+    failed[sport] = false;
     renderSport(sport, parsed);
   } catch (e) {
-    console.error(sport, e);
+    failed[sport] = true;
+    console.warn(sport, 'scores did not load:', e.message || e);
+    // Keep showing the last scores if there are any; otherwise say so, with a retry button
+    if (!cache[sport]) {
+      const prefix = PREFIX[sport];
+      const msg = `<div class="load-err" role="alert">Couldn’t reach ESPN for scores.<br/>`
+        + `<button type="button" onclick="loadAll(true)">Try again</button></div>`;
+      ['live','pre','post'].forEach(st => { document.getElementById(`${prefix}g-${st}`).innerHTML = msg; });
+    }
   }
 }
 
@@ -1286,8 +1338,13 @@ async function loadAll(showSkel=false) {
   }
   await Promise.all(Object.keys(APIS).map(s => loadSport(s, false)));
   updateCounts();
-  document.getElementById('footNote').textContent =
-    'Updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit'});
+  lastLoad = Date.now();
+  const note = document.getElementById('footNote');
+  const down = Object.keys(APIS).filter(s => failed[s]);
+  note.textContent = down.length
+    ? 'Couldn’t update ' + down.map(s => s.toUpperCase()).join(', ') + ' · retrying'
+    : 'Updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit'});
+  note.classList.toggle('warn', down.length > 0);
   btn.classList.remove('spin');
   busy = false;
 }
@@ -1302,7 +1359,7 @@ async function fetchTeam(sport, id) {
   const key = `${sport}:${id}`;
   const hit = teamCache[key];
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.data;
-  const get = url => fetch(url, { cache:'no-store' }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  const get = url => fetchJSON(url);
   // The team detail endpoint no longer sends CORS headers, so it's best-effort;
   // the schedule endpoint (CORS-enabled) carries a basic team object as well.
   const [info, sched] = await Promise.all([
@@ -1377,11 +1434,11 @@ function buildTeamSheet(sport, { team, events }) {
 
   const recent = done.slice(-5).reverse();
   const next   = games.find(g => g.state !== 'post');
-  const oppLine = g => `<img src="${g.oppLogo}" alt="" onerror="this.style.visibility='hidden'"/>
+  const oppLine = g => `<img src="${safeUrl(g.oppLogo)}" alt="" onerror="this.style.visibility='hidden'"/>
     <span class="opp">${g.home ? 'vs' : '@'} ${g.oppName || g.oppAbbr}</span>`;
 
   const rank = team.rank > 0 && team.rank <= 25 ? `<span class="team-rank">${team.rank}</span>` : '';
-  const link = team.links?.find(l => l.rel?.includes('clubhouse'))?.href || team.clubhouse;
+  const link = safeUrl(team.links?.find(l => l.rel?.includes('clubhouse'))?.href || team.clubhouse);
   const color = /^[0-9a-f]{6}$/i.test(team.color || '') ? `#${team.color}` : '';
 
   return `
@@ -1389,7 +1446,7 @@ function buildTeamSheet(sport, { team, events }) {
     <div class="ts-grip"></div>
     <button class="ts-close" id="teamSheetClose" aria-label="Close">✕</button>
     <div class="ts-head">
-      <img class="ts-logo" src="${pickLogo(team.logos) || team.logo || ''}" alt=""/>
+      <img class="ts-logo" src="${pickLogo(team.logos) || safeUrl(team.logo)}" alt=""/>
       <div>
         <div class="ts-name">${rank}${team.displayName || team.abbreviation || ''}</div>
         <div class="ts-sub">${team.standingSummary || ''}</div>
@@ -1438,6 +1495,12 @@ document.addEventListener('click', e => {
 });
 document.getElementById('sheetBackdrop').addEventListener('click', closeTeamSheet);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTeamSheet(); });
+// Team columns are divs: Enter or Space opens the team sheet like a tap
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const col = e.target.closest && e.target.closest('.team-col.tappable');
+  if (col) { e.preventDefault(); openTeamSheet(col.dataset.sport, col.dataset.team); }
+});
 
 /* ═══════════════════════════════════════════════════
    UI INTERACTIONS
@@ -1497,8 +1560,13 @@ document.getElementById('refreshBtn').addEventListener('click', () => loadAll(fa
 /* ═══════════════════════════════════════════════════
    BOOT
 ═══════════════════════════════════════════════════ */
+let lastLoad = 0;
 loadAll(true).then(pickDefaultStatus);
-setInterval(() => loadAll(false), 30_000);
+// Refresh every 30 seconds while the page is on screen; a hidden tab skips it and catches up when it's back
+setInterval(() => { if (!document.hidden) loadAll(false); }, 30_000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Date.now() - lastLoad > 30_000) loadAll(false);
+});
 </script>
 
 </body>
