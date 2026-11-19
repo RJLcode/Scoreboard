@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Scoreboard v1.0.1 | 2026-11-19 -->
+<!-- Scoreboard v1.0.2 | 2026-11-19 -->
 <!--
   Scoreboard
   Copyright (c) 2026 RJLcode (https://github.com/RJLcode). All rights reserved.
@@ -1360,12 +1360,9 @@ async function fetchTeam(sport, id) {
   const hit = teamCache[key];
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.data;
   const get = url => fetchJSON(url);
-  // The team detail endpoint no longer sends CORS headers, so it's best-effort;
-  // the schedule endpoint (CORS-enabled) carries a basic team object as well.
-  const [info, sched] = await Promise.all([
-    get(`${TEAM_API[sport]}/${id}`).catch(() => ({})),
-    get(`${TEAM_API[sport]}/${id}/schedule`),
-  ]);
+  // ESPN's team detail endpoint (…/teams/{id}) sends no CORS headers, so browsers always block it and log an
+  // error. The schedule endpoint carries a basic team object, and the sheet derives the rest from its games.
+  const sched = await get(`${TEAM_API[sport]}/${id}/schedule`);
   let events = sched.events || [];
   let base = sched.team || {};
   // In the postseason ESPN returns only playoff games — prepend the regular season
@@ -1377,7 +1374,7 @@ async function fetchTeam(sport, id) {
     const n = r => done.filter(g => g.result === r).length;
     if (done.length) base = { ...base, recordSummary: `${n('w')}-${n('l')}` };
   }
-  const data = { team: { ...base, ...info.team }, events };
+  const data = { team: { ...base }, events };
   teamCache[key] = { at: Date.now(), data };
   return data;
 }
